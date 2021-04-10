@@ -22,6 +22,7 @@ HELPER_PATH = $(PREFIX)/lib/afl
 DOC_PATH    = $(PREFIX)/share/doc/afl
 MISC_PATH   = $(PREFIX)/share/afl
 
+
 # PROGS intentionally omit afl-as, which gets installed elsewhere.
 
 PROGS       = afl-gcc afl-fuzz afl-showmap afl-tmin afl-gotcpu afl-analyze
@@ -33,7 +34,7 @@ CFLAGS     += -Wall -D_FORTIFY_SOURCE=2 -g -Wno-pointer-sign \
 	      -DBIN_PATH=\"$(BIN_PATH)\"
 
 ifneq "$(filter Linux GNU%,$(shell uname))" ""
-  LDFLAGS  += -ldl
+  LDFLAGS  += -ldl -lm
 endif
 
 ifeq "$(findstring clang, $(shell $(CC) --version 2>/dev/null))" ""

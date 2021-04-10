@@ -328,6 +328,22 @@
 #define MAP_SIZE_POW2       16
 #define MAP_SIZE            (1 << MAP_SIZE_POW2)
 
+/* ACO: update frequency and coefficient */
+#define ACO_FREQENCY       30
+#define ACO_COEF           0.9
+#define INIT_BYTE_SCORE    128
+
+
+/* Path weight. 8 bytes for ages, 8 bytes for block hit-counts of ages.
+   8 bytes for changes, 8 bytes for block hit-counts of changes. 
+   4 bytes for 32-bit system.
+ */
+#define WEIGHT_SHM         32
+
+/* Keep decimal of path weight */
+#define FACTOR100         100
+#define FACTOR1000        1000
+
 /* Maximum allocator request size (keep well under INT_MAX): */
 
 #define MAX_ALLOC           0x40000000
