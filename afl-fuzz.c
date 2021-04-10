@@ -94,47 +94,39 @@
 static u8 schedule = 1;
 enum{
   /* 00 */ POWER_NONE,
-  /* 01 */ ANNEAL,    /* default */
-  /* 02 */ AVERAGE
+  /* 01 */ ANNEAL    /* default */
 };
 
-double max_p_age = 0,                /* max path age among all seeds */
-       min_p_age = 0,               /* minimun path age among all seeds */
-       max_p_churn = 0,            /* max path churn among all seeds */
-       min_p_churn = 0;          /* minimun path churn among all seeds */
+u32 aco_max_seed_len;
 
-double agg_weight_age = 0, agg_weight_churn = 0; /* aggregate weight */
+double max_raw_fitness = 0,    /* max path churn among all seeds */
+        min_raw_fitness = 0;   /* minimun path churn among all seeds */
+
 size_t calibrated_paths = 0;  /* aggregate count */
 
 double show_factor = 0.0;
 
-/* default: use both */
-static u8 use_burst_age = 1,    /* Use the age information */
-         use_burst_churn = 1;  /* Use the churn information */
-
 u8 use_byte_fitness = 1;  /* use byte score to select bytes; default: use */
-
-u8 power_add_mul = 1; // default: mul
-enum{
-  FITNESS_ADD,
-  FITNESS_MUL
-};
+u8 aco_incdec = ACO_INC_ONLY;     /* only increase score or increase/decrease */
+u8 INIT_BYTE_SCORE = 0, MIN_BYTE_SCORE = 0, MAX_BYTE_SCORE = 0;
+u8 ACO_GRAV_BIAS = 0;  
+// ACO_GRAV_BIAS = (1 - ACO_COEF) * INIT_BYTE_SCORE;
 
 u32 scale_exponent = 3; // default
-float fitness_exponent = 0.05;
+float fitness_exponent = 0.3;
 
 static u32* seed_alias_table;            /* alias method: alias table  */
 static double* seed_alias_probability;   /* alias probability of a seed */
-u8 *seed_prob_norm_buf,                  /* normed probability of seeds */
-   *seed_out_scratch_buf,                /* kicked out of analysis queue during creating alias table */
-   *seed_in_scratch_buf;                 /* kept in analysis queue during creating alias table */
+static u8 *seed_prob_norm_buf,                  /* normed probability of seeds */
+          *seed_out_scratch_buf,                /* kicked out of analysis queue during creating alias table */
+          *seed_in_scratch_buf,                 /* kept in analysis queue during creating alias table */
+          *byte_prob_norm_buf,                  /* For ACO; normed probability of seeds */
+          *byte_out_scratch_buf,                /* For ACO; kicked out of analysis queue during creating alias table */
+          *byte_in_scratch_buf;                  /* For ACO */
 
 u8 alias_seed_selection = 0;        /* Use alias method to select next seed based on burst */
 
-// u64 total_input_len = 0;            /* Total length of all seeds */
 double total_log_bitmap_size = 0;       /* Total value of log(bitmap_size) */
-
-// double show_norm_churn = 0, show_norm_age = 0;
 
 /********************    AFL Variables    *********************/
 
@@ -158,6 +150,8 @@ static u32 hang_tmout = EXEC_TIMEOUT; /* Timeout used for hang det (ms)   */
 
 EXP_ST u64 mem_limit  = MEM_LIMIT;    /* Memory cap for child (MB)        */
 
+EXP_ST u32 cpu_to_bind = 0;           /* id of free CPU core to bind      */
+
 static u32 stats_update_freq = 1;     /* Stats update frequency (execs)   */
 
 EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
@@ -168,6 +162,7 @@ EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            kill_signal,               /* Signal that killed the child     */
            resuming_fuzz,             /* Resuming an older fuzzing job?   */
            timeout_given,             /* Specific timeout given?          */
+           cpu_to_bind_given,         /* Specified cpu_to_bind given?     */
            not_on_tty,                /* stdout is not a tty              */
            term_too_small,            /* terminal dimensions too small    */
            uses_asan,                 /* Target uses ASAN?                */
@@ -233,6 +228,7 @@ EXP_ST u64 total_crashes,             /* Total number of crashes          */
            unique_tmouts,             /* Timeouts with unique signatures  */
            unique_hangs,              /* Hangs with unique signatures     */
            total_execs,               /* Total execve() calls             */
+           total_aco_updates,         /* Total ACO score updates          */
            slowest_exec_ms,           /* Slowest testcase non hang in ms  */
            start_time,                /* Unix start time (ms)             */
            last_path_time,            /* Time for most recent path (ms)   */
@@ -285,12 +281,12 @@ static s32 cpu_aff = -1;       	      /* Selected CPU core                */
 #endif /* HAVE_AFFINITY */
 
 static FILE* plot_file;               /* Gnuplot output file              */
-// static FILE* churn_file;              /* plot churn values to file  */
 
 struct queue_entry {
 
   u8* fname;                          /* File name for the test case      */
   u32 len;                            /* Input length                     */
+  u32 align_len;             /* for ACO; extend intput length to 4-bytes data */
 
   u8  cal_failed,                     /* Calibration failed?              */
       trim_done,                      /* Trimmed?                         */
@@ -308,10 +304,9 @@ struct queue_entry {
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
       depth;                          /* Path depth                       */
-  double path_age,                    /* Average age of executed basic blocks. log2(days) */
-         path_churn,                  /* Average number of churns of executed basic blocks */
-         alias_score,                 /* Alias score of a seed; For alias method */
-         seed_burst;                  /* burst fitness of a seed according to churn info */
+  double raw_fitness,         /* The non-normalized fitness of the seed as it is returned */
+         alias_score,                 /* Used to calculate probability of choosing this seed */
+         weight;        /* The fitness of the seed normalized between min and max raw fitness */
 
   u8* byte_score;          /* possibility to mutate a certain byte, initial is INIT_BYTE_SCORE */
 
@@ -320,9 +315,6 @@ struct queue_entry {
 
   u32 *alias_table;                   /* table for byte selection (ACO) */
   double *alias_prob;                 /* probability for bytes (ACO) */
-  double *prob_norm_buf;
-  int *out_scratch_buf;
-  int *in_scratch_buf;
 
   struct queue_entry *next,           /* Next element, if any             */
                      *next_100;       /* 100 elements ahead               */
@@ -448,168 +440,123 @@ static inline u32 UR(u32 limit) {
 
 }
 
-/* Get values of ages  */
-double get_normalized_age(){
-  double vage = 0.0;
+
+/* Get values of churn info from instrumentation  */
+double get_raw_fitness_of_executed_input(){
+  double inst_raw_fitness = 0.0;
+
+  double *sum_raw_fitness = (double *)(trace_bits + MAP_SIZE);
 
 #ifdef WORD_SIZE_64
-  u64 *pAgeWt = (u64 *)(trace_bits + MAP_SIZE);
-  u64 *pAgeCnt = (u64 *)(trace_bits + MAP_SIZE + 8);
-
-  if ((*pAgeCnt) != 0){ 
-    vage = ((double)(*pAgeWt) / (*pAgeCnt));
-  }
+  u64 *count_raw_fitness = (u64 *)(trace_bits + MAP_SIZE + 8);
 
 #else
-
-  u32 *pAgeWt = (u32 *)(trace_bits + MAP_SIZE);
-  u32 *pAgeCnt = (u32 *)(trace_bits + MAP_SIZE + 4);
-  if ((*pAgeCnt) != 0){
-    vage = ((double)(*pAgeWt) / (*pAgeCnt));
-  }
+  u32 *count_raw_fitness = (u32 *)(trace_bits + MAP_SIZE + 8);
 
 #endif
 
-  return vage;
-}
+  if ((*count_raw_fitness) != 0){ 
+    inst_raw_fitness = (*sum_raw_fitness) / (*count_raw_fitness);
+  }
 
-/* Get values of changes */
-double get_num_churns(){
-  double vchurn = 0.0;
-
-#ifdef WORD_SIZE_64
-
-  u64 *pChurnWt = (u64 *)(trace_bits + MAP_SIZE + 16);
-  u64 *pChurnCnt = (u64 *)(trace_bits + MAP_SIZE + 24);
-  if ((*pChurnCnt) != 0)
-      vchurn = (double)(*pChurnWt) / (*pChurnCnt);
-
-#else
-
-  u32 *pChurnWt = (u32 *)(trace_bits + MAP_SIZE + 8);
-  u32 *pChurnCnt = (u32 *)(trace_bits + MAP_SIZE + 12);
-  if ((*pChurnCnt) != 0)
-      vchurn = (double)(*pChurnWt) / (*pChurnCnt);
-
-#endif
-
-  return vchurn;
+  return inst_raw_fitness;
 }
 
 /* Fitness factor for age/churn infomation */
-double calculate_fitness(double cur_age, double cur_churn){
-  double fitness_factor = 0.0, normalized_age, normalized_churn;
+double normalize_fitness(double cur_raw_fitness){
+  double normalized_fitness = 0.0;
 
-  if ((max_p_age == min_p_age) && (max_p_churn == min_p_churn)){
-    fitness_factor = 1;
-    // show_norm_age = 0.0;
-    // show_norm_churn = 0.0;
-    
+  if (max_raw_fitness == min_raw_fitness){
+    normalized_fitness = 1;
   } else {
-    /* the smaller rank gets higher factor.
-      1 / f(ranks) ==> higher one gets higher factor
-    */
-    // normalized_age = (max_p_age - cur_age)/(max_p_age - min_p_age); // minimize
-    if (max_p_age == min_p_age) normalized_age = 0;
-    else normalized_age = (cur_age - min_p_age)/(max_p_age - min_p_age); // maximize
-    if (normalized_age < 0) normalized_age = 0;
-    // show_norm_age = normalized_age;
-
-    // the higher churn gets higher factor
-    if (min_p_churn == max_p_churn) normalized_churn = 0;
-    else normalized_churn = (cur_churn - min_p_churn) / (max_p_churn - min_p_churn);
-    if (normalized_churn < 0) normalized_churn = 0;
-    // show_norm_churn = normalized_churn;
-
-    switch(power_add_mul){
-      case FITNESS_ADD:
-        // fitness_factor: (0,2)
-        fitness_factor = normalized_age + normalized_churn;
-        break;
-
-      case FITNESS_MUL:
-        if (normalized_age != 0 && normalized_churn !=0) fitness_factor = normalized_churn * normalized_age;
-        else if (normalized_age == 0) fitness_factor = normalized_churn;
-        else fitness_factor = normalized_age;
-        break;
-      
-      default:
-        PFATAL("Wrong selection of ADD or MUL");
-    }
-    
+    // maximize
+    normalized_fitness = (cur_raw_fitness - min_raw_fitness) / (max_raw_fitness - min_raw_fitness);  
   }
 
-
-  return fitness_factor;
+  return normalized_fitness;
 }
 
-void update_seed_burst (void){
+void update_seed_fitness (void){
   struct queue_entry *q = queue;
   while (q){
     if (!q->cal_failed)
-      q->seed_burst = calculate_fitness(q->path_age, q->path_churn);
+      q->weight = normalize_fitness(q->raw_fitness);
     
     q = q->next;
   }
 }
 
-void update_byte_score(struct queue_entry* q, double cur_burst, 
-                s32 start_pos, s32 end_pos){
-  double delt = 0.00001;  // float value is approximate
+/* update byte score for group of 4 bytes at the same time */
+static inline void update_byte_score_havoc(struct queue_entry* q, double cur_fitness,
+                          u32* one_group_byte_score){
+  double delt = 0.0000001;  // float value is approximate
 
-  if (cur_burst > q->seed_burst + delt){ // larger burst gets higher score
-    for (u32 i = start_pos; i <= end_pos; i++){
-      if (q->byte_score[i] < 255) // don't overflow
-          q->byte_score[i]++;
-    }
-  } else if(cur_burst + delt < q->seed_burst){
-    for (u32 i = start_pos; i <= end_pos; i++){
-      if (q->byte_score[i] > 0) // don't underflow
-          q->byte_score[i]--;
-    }
+  if (cur_fitness > q->weight + delt){ // larger burst gets higher score
+    if (*one_group_byte_score != 0xffffffff) // don't overflow
+      *one_group_byte_score += 0x01010101; // each byte adds one
+  } else if(aco_incdec == ACO_INC_DEC && cur_fitness + delt < q->weight){
+    if (*one_group_byte_score != 0) // don't underflow
+        *one_group_byte_score -= 0x01010101; // each byte subtracts one
   }
 }
 
+/* update byte score for group of 4 bytes at the same time */
+static inline void update_byte_score_deterministic(struct queue_entry* q, double cur_fitness, 
+                s32 start_pos, s32 end_pos){
+  u32* group_byte_score = (u32*) q->byte_score;
+  s32 group_start_pos = start_pos / ACO_GROUP_SIZE;
+  s32 group_end_pos = end_pos / ACO_GROUP_SIZE;
+  u32 group_max_pos = q->align_len / ACO_GROUP_SIZE;
+
+  if (group_start_pos == group_end_pos){
+    if (group_start_pos < group_max_pos)
+        update_byte_score_havoc(q, cur_fitness, group_byte_score + group_start_pos);
+  } else {
+    if (group_start_pos < group_max_pos)
+        update_byte_score_havoc(q, cur_fitness, group_byte_score + group_start_pos);
+    if (group_end_pos < group_max_pos)
+        update_byte_score_havoc(q, cur_fitness, group_byte_score + group_end_pos);
+  }
+
+}
+
 /* For deterministic stage. In deterministic stage, 
-      the scores will not gravitate to zero */
+      the scores will not gravitate to zero.
+  Calculate only when the lengths of an input and its seed equal.
+      [0 =< byte_end_pos - byte_start_pos < 4] */
 void cal_init_seed_byte_score(struct queue_entry* q,
                   s32 byte_start_pos, s32 byte_end_pos){
-  double cur_log2_age, cur_churn, cur_burst;
-  u32 end_pos, start_pos;
-  u8 num_neighbor_bytes = 4;
+  double cur_raw_fitness, cur_fitness;
 
   if (!q->byte_score) return;
 
-  if (byte_start_pos >= q->len || byte_start_pos < 0) return;
-  
-  if (byte_end_pos >= q->len) end_pos = q->len - 1;
-  else end_pos = byte_end_pos;
+  cur_raw_fitness = get_raw_fitness_of_executed_input();
 
-  /* consider neighbor bytes */
-  if ((end_pos + num_neighbor_bytes) >= q->len) end_pos = q->len - 1;
-  else end_pos = end_pos + num_neighbor_bytes;
-  
-  if ((byte_start_pos - num_neighbor_bytes) < 0) start_pos = 0;
-  else start_pos = byte_start_pos - num_neighbor_bytes;
+  cur_fitness = normalize_fitness(cur_raw_fitness);
 
-  cur_log2_age = get_normalized_age();
-  cur_churn = get_num_churns();
-
-  cur_burst = calculate_fitness(cur_log2_age, cur_churn);
-
-  update_byte_score(q, cur_burst, start_pos, end_pos);
+  update_byte_score_deterministic(q, cur_fitness, byte_start_pos, byte_end_pos);
+  total_aco_updates++;
 
 }
 
 /* expire old scores */
 void expire_old_score(struct queue_entry* q){
   
-  if (!(total_execs % ACO_FREQENCY)){
+  // if (!(total_aco_updates % ACO_FREQENCY)){
+  if (!UR(q->len)){
     if (q->byte_score){
-      for (int i = 0; i < q->len; i++){
+      for (int i = 0; i < q->align_len; i++){
         /* gravitate to INIT_BYTE_SCORE */
-        q->byte_score[i] = 
-          (q->byte_score[i] - INIT_BYTE_SCORE) * ACO_COEF + INIT_BYTE_SCORE; // just drop the fractional part
+        // just drop the fractional part
+        if (q->byte_score[i] > MIN_BYTE_SCORE && q->byte_score[i] < INIT_BYTE_SCORE){
+          q->byte_score[i]++;
+        } else if (q->byte_score[i] > INIT_BYTE_SCORE && q->byte_score[i] < MAX_BYTE_SCORE){
+          q->byte_score[i]--;
+        } else {
+          // values in [MIN_BYTE_SCORE, MAX_BYTE_SCORE] will not change using this calculation
+          q->byte_score[i] = q->byte_score[i] * ACO_COEF + ACO_GRAV_BIAS;
+        }
+        
       }
     }
   }
@@ -617,45 +564,34 @@ void expire_old_score(struct queue_entry* q){
 
 
 /* Locate the bytes that are changed in this mutation;
-    then update the score for these bytes */
+    then update the score for these bytes; */
 void update_fitness_in_havoc(struct queue_entry* q, u8* seed_mem, 
             u8* cur_input_mem, u32 cur_input_len){
+
+  if (q->len != cur_input_len) return;
   
-  u32 rem, div, tmp_len;
-  u8 group_size = 4;
-  double cur_log2_age, cur_churn, cur_burst;
-
-  if (q->len > cur_input_len) tmp_len = cur_input_len;
-  else tmp_len = q->len;
-
-  rem = tmp_len % group_size;
-  div = (tmp_len - rem) / group_size;
-
-  cur_log2_age = get_normalized_age();
-  cur_churn = get_num_churns();
-
-  cur_burst = calculate_fitness(cur_log2_age, cur_churn);
+  double cur_raw_fitness, cur_fitness;
 
   /* if one byte in a group with the size group_size changes the fitness,
-      other bytes in the group have the same change. */
-  for (int i = 0; i < div; i++){
-    // when two group bytes are different, update fitness
-    if (memcmp(seed_mem + i * group_size, 
-              cur_input_mem + i * group_size, group_size)){
+      other bytes in the group have the same change. 
+   */
+  u32 i = q->align_len / ACO_GROUP_SIZE;
+  u32* group_seed = ((u32*)seed_mem);
+  u32* group_cur_input = ((u32*)cur_input_mem);
+  u32* group_byte_score = (u32*)(q->byte_score);
 
-      update_byte_score(q, cur_burst, 
-                i * group_size, i * group_size + group_size - 1);
+  cur_raw_fitness = get_raw_fitness_of_executed_input();
 
+  cur_fitness = normalize_fitness(cur_raw_fitness);
+
+  while(i--){
+    if ((*(group_seed++)) != (*(group_cur_input++))){
+      update_byte_score_havoc(q, cur_fitness, group_byte_score);
     }
+    group_byte_score++;
   }
 
-  /* for the remainder bytes */
-  if (memcmp(seed_mem + div * group_size, 
-              cur_input_mem + div * group_size, rem)){
-
-    update_byte_score(q, cur_burst, 
-                div * group_size, div * group_size + rem - 1);
-  }
+  total_aco_updates++;
 
 }
 
@@ -666,12 +602,12 @@ Select one byte to be mutated based no churn values by using ACO.
 static inline u32 select_one_byte(struct queue_entry *q, u32 cur_input_len){
   // randomly select an aliased seed
   u32 s = UR(cur_input_len);
-  // cur_input_len is too long (than seed length)
-  if (s >= q->len) return s;
-  // cur_input_len is too short (than the alias position)
-  if (q->alias_table[s] >= cur_input_len) return s;
+  // // cur_input_len is too long (than seed length)
+  // if (s >= q->len) return s;
+  // // cur_input_len is too short (than the alias position)
+  // if (q->alias_table[s] >= cur_input_len) return s;
   // generate the next percent
-  double p = (double)UR(100)/100;
+  double p = (double)UR(0xFFFFFFFF)/0xFFFFFFFE;
   return (p < q->alias_prob[s] ? s : q->alias_table[s]);
 }
 
@@ -679,9 +615,21 @@ void create_byte_alias_table(struct queue_entry* q){
 
   u32 n = q->len, i = 0, a, g;
 
-  double *P = q->prob_norm_buf;
-  int *   S = q->out_scratch_buf;
-  int *   L = q->in_scratch_buf;
+  if (!byte_prob_norm_buf) {
+    byte_prob_norm_buf = (u8 *)ck_alloc(n * sizeof(double));
+    byte_out_scratch_buf = (u8 *)ck_alloc(n * sizeof(int));
+    byte_in_scratch_buf = (u8 *)ck_alloc(n * sizeof(int));
+    aco_max_seed_len = n;
+  } else if (aco_max_seed_len < n){
+    byte_prob_norm_buf = (u8 *)ck_realloc((void *)byte_prob_norm_buf, n * sizeof(double));
+    byte_out_scratch_buf = (u8 *)ck_realloc((void *)byte_out_scratch_buf, n * sizeof(int));
+    byte_in_scratch_buf = (u8 *)ck_realloc((void *)byte_in_scratch_buf, n * sizeof(int));
+    aco_max_seed_len = n;
+  }
+
+  double *P = (double *)byte_prob_norm_buf;
+  int *   S = (int *)byte_out_scratch_buf;
+  int *   L = (int *)byte_in_scratch_buf;
 
   if (!P || !S || !L) { FATAL("could not aquire memory for alias table"); }
   memset(q->alias_table, 0, n * sizeof(u32));
@@ -748,7 +696,7 @@ void create_byte_alias_table(struct queue_entry* q){
 
 /* select a way to choose mutated bytes */
 u32 URfitness(struct queue_entry* q, s32 input_len){
-  if (use_byte_fitness) {
+  if (use_byte_fitness && (q->len == input_len)) {
     return select_one_byte(q, input_len);
   } else{
     return UR(input_len);
@@ -863,7 +811,21 @@ static void bind_to_free_cpu(void) {
 
   closedir(d);
 
-  for (i = 0; i < cpu_core_count; i++) if (!cpu_used[i]) break;
+  if (cpu_to_bind_given) {
+
+    if (cpu_to_bind >= cpu_core_count)
+      FATAL("The CPU core id to bind should be between 0 and %u", cpu_core_count - 1);
+
+    if (cpu_used[cpu_to_bind])
+      FATAL("The CPU core #%u to bind is not free!", cpu_to_bind);
+
+    i = cpu_to_bind;
+
+  } else {
+
+    for (i = 0; i < cpu_core_count; i++) if (!cpu_used[i]) break;
+
+  }
 
   if (i == cpu_core_count) {
 
@@ -1088,6 +1050,11 @@ void destroy_alias_buf(void){
 
   ck_free(seed_alias_table);
   ck_free(seed_alias_probability);
+
+  ck_free(byte_prob_norm_buf);
+  ck_free(byte_out_scratch_buf);
+  ck_free(byte_in_scratch_buf);
+
 }
 /* select next queue entry based on alias probability of churns
  ID range: 0 ~ queued_paths -1
@@ -1096,7 +1063,7 @@ static inline u32 select_next_queue_entry(void){
   // randomly select an aliased seed
   u32 s = UR(queued_paths);
   // generate the next percent
-  double p = (double)UR(100)/100;
+  double p = (double)UR(0xFFFFFFFF)/0xFFFFFFFE;
   return (p < seed_alias_probability[s] ? s : seed_alias_table[s]);
 }
 
@@ -1104,15 +1071,25 @@ void create_seed_alias_table(void){
 
   u32 n = queued_paths, i = 0, a, g;
 
-  seed_alias_table = (u32 *)ck_realloc((void *)seed_alias_table, n * sizeof(u32));
-  seed_alias_probability = (double *)ck_realloc((void *)seed_alias_probability, n * sizeof(double));
+  if (!seed_alias_table){
+    seed_alias_table = (u32 *)ck_alloc(n * sizeof(u32));
+    seed_alias_probability = (double *)ck_alloc(n * sizeof(double));
 
-  seed_prob_norm_buf = (u8 *)ck_realloc((void *)seed_prob_norm_buf, n * sizeof(double));
-  seed_out_scratch_buf = (u8 *)ck_realloc((void *)seed_out_scratch_buf, n * sizeof(u32));
-  seed_in_scratch_buf = (u8 *)ck_realloc((void *)seed_in_scratch_buf, n * sizeof(u32));
+    seed_prob_norm_buf = (u8 *)ck_alloc(n * sizeof(double));
+    seed_out_scratch_buf = (u8 *)ck_alloc(n * sizeof(int));
+    seed_in_scratch_buf = (u8 *)ck_alloc(n * sizeof(int));
+  } else{
+    seed_alias_table = (u32 *)ck_realloc((void *)seed_alias_table, n * sizeof(u32));
+    seed_alias_probability = (double *)ck_realloc((void *)seed_alias_probability, n * sizeof(double));
+
+    seed_prob_norm_buf = (u8 *)ck_realloc((void *)seed_prob_norm_buf, n * sizeof(double));
+    seed_out_scratch_buf = (u8 *)ck_realloc((void *)seed_out_scratch_buf, n * sizeof(int));
+    seed_in_scratch_buf = (u8 *)ck_realloc((void *)seed_in_scratch_buf, n * sizeof(int));
+  }
+
   double *P = (double *)seed_prob_norm_buf;
-  int *   S = (u32 *)seed_out_scratch_buf;
-  int *   L = (u32 *)seed_in_scratch_buf;
+  int *   S = (int *)seed_out_scratch_buf;
+  int *   L = (int *)seed_in_scratch_buf;
 
   if (!P || !S || !L) { FATAL("could not aquire memory for alias table"); }
   memset((void *)seed_alias_table, 0, n * sizeof(u32));
@@ -1137,7 +1114,7 @@ void create_seed_alias_table(void){
       
       rela_time = (double)avg_exec_us / q->exec_us;
       rela_log_bitmap = (double)log(q->bitmap_size) / avg_log_bitmap_size;
-      q->alias_score = q->seed_burst * rela_time * rela_log_bitmap;
+      q->alias_score = q->weight * rela_time * rela_log_bitmap;
 
     }
 
@@ -1295,10 +1272,15 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->depth        = cur_depth + 1;
   q->passed_det   = passed_det;
   q->times_selected = 0;
-  q->path_age  = 0.0;
-  q->path_churn  = 0.0;
+  q->raw_fitness  = 0.0;
   q->alias_score = 0.0;
-  q->seed_burst = 0.0;
+  q->weight = 0.0;
+
+  // for ACO byte score, extend to ACO_GROUP_SIZE * N
+  if (q->len % ACO_GROUP_SIZE)
+    q->align_len = q->len - q->len % ACO_GROUP_SIZE + ACO_GROUP_SIZE;
+  else
+    q->align_len = q->len;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
@@ -1314,7 +1296,8 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   cycles_wo_finds = 0;
 
-  if (!(queued_paths % 100)) {
+  /* Set next_100 pointer for every 100th element (index 0, 100, etc) to allow faster iteration. */
+  if ((queued_paths - 1) % 100 == 0 && queued_paths > 1)  {
 
     q_prev100->next_100 = q;
     q_prev100 = q;
@@ -1340,9 +1323,6 @@ EXP_ST void destroy_queue(void) {
     ck_free(q->byte_score);
     ck_free(q->alias_table);
     ck_free(q->alias_prob);
-    ck_free(q->prob_norm_buf);
-    ck_free(q->out_scratch_buf);
-    ck_free(q->in_scratch_buf);
     ck_free(q);
     q = n;
 
@@ -3080,6 +3060,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   s32 old_sc = stage_cur, old_sm = stage_max;
   u32 use_tmout = exec_tmout;
   u8* old_sn = stage_name;
+  u8 re_cal_seed_fitness = 0;
 
   /* Be a bit more generous about timeouts when resuming sessions, or when
      trying to calibrate already-added finds. This helps avoid trouble due
@@ -3180,27 +3161,23 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   q->handicap    = handicap;
   q->cal_failed  = 0;
 
-  q->path_age = get_normalized_age();
-  q->path_churn = get_num_churns();
-
+  q->raw_fitness = get_raw_fitness_of_executed_input();
+  
   // anneal: update max and min path weight for all seeds
-  if (use_burst_age){
-    if (calibrated_paths == 0) max_p_age = min_p_age = q->path_age;
-    if (max_p_age < q->path_age) max_p_age = q->path_age;
-    if (min_p_age > q->path_age) min_p_age = q->path_age;
-  } else max_p_age = min_p_age = 0;
+  if (calibrated_paths == 0){
+    max_raw_fitness = min_raw_fitness = q->raw_fitness;
+  }
 
-  if (use_burst_churn){
-    if (calibrated_paths == 0) max_p_churn = min_p_churn = q->path_churn;
-    if (max_p_churn < q->path_churn) max_p_churn = q->path_churn;
-    if (min_p_churn > q->path_churn) min_p_churn = q->path_churn;
-  } else max_p_churn = min_p_churn = 0;
+  if (max_raw_fitness < q->raw_fitness){
+    max_raw_fitness = q->raw_fitness;
+    re_cal_seed_fitness = 1;
+  }
 
-  // for average
-  if (use_burst_age)
-    agg_weight_age += q->path_age;
-  if (use_burst_churn)
-    agg_weight_churn += q->path_churn;
+  if (min_raw_fitness > q->raw_fitness) {
+    min_raw_fitness = q->raw_fitness;
+    re_cal_seed_fitness = 1;
+  }
+
   calibrated_paths++;
 
   total_bitmap_size += q->bitmap_size;
@@ -3209,11 +3186,8 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
   update_bitmap_score(q);
 
-  update_seed_burst();
-
-  // calculate_fitness(q->path_age, q->path_churn);
-  // fprintf(churn_file, "seed, %.6f, %.6f, %.6f, %.6f\n", q->path_churn, q->path_age, show_norm_churn, show_norm_age);
-  // fflush(churn_file);
+  if (re_cal_seed_fitness) update_seed_fitness();
+  else q->weight = normalize_fitness(q->raw_fitness);
 
   /* If this case didn't result in new output from the instrumentation, tell
      parent. This is a non-critical problem, but something to warn the user
@@ -3468,12 +3442,7 @@ static void perform_dry_run(char** argv) {
 
   }
 
-  if (use_burst_age){
-    OKF ("Initial Age Signal is: %.2f.", (max_p_age + min_p_age)/2);
-  }
-  if (use_burst_churn){
-    OKF ("Initial Churns Signal is: %.2f.", (max_p_churn + min_p_churn)/2);
-  }
+  OKF ("Initial Churn Raw Fitness is: %.6f.", (max_raw_fitness + min_raw_fitness)/2);
 
   OKF("All test cases processed.");
 
@@ -3848,12 +3817,6 @@ keep_as_crash:
 
       fn = alloc_printf("%s/crashes/id:%06llu,sig:%02u,%s", out_dir,
                         unique_crashes, kill_signal, describe_op(0));
-      
-      // crash_churn = get_num_churns();
-      // crash_age = get_normalized_age();
-      // calculate_fitness(crash_age, crash_churn);
-      // fprintf(churn_file, "crash, %.6f, %.6f, %.6f, %.6f\n", crash_churn, crash_age, show_norm_churn, show_norm_age);
-      // fflush(churn_file);
 
 #else
 
@@ -5298,9 +5261,9 @@ static u32 calculate_score(struct queue_entry* q) {
   u32 avg_bitmap_size = total_bitmap_size / total_bitmap_entries;
   u32 perf_score = 100;
 
-  double energy_factor = 0, energy_exponent;//, normalized_age, normalized_churn; //, fitness_score
-  double avg_weight_age, avg_weight_churn;
-  double normalizing_constant = 1.0, fitness;
+  double energy_factor = 0, energy_exponent;//, fitness_score
+  
+  // double fitness;
   
   q->times_selected ++;
 
@@ -5363,55 +5326,13 @@ static u32 calculate_score(struct queue_entry* q) {
 
     case ANNEAL:
 
-      /* If age or churn is disabled, set the normalizing_constant to 0.5;
-          The initial normalizing_constant=1.0; */
-      if ((max_p_age == min_p_age) && (max_p_churn == min_p_churn)) energy_factor = 1;
+      if (max_raw_fitness == min_raw_fitness) energy_factor = 1;
       else {
-        fitness = calculate_fitness(q->path_age, q->path_churn);
-        // churn or age only
-        if (max_p_age == min_p_age 
-              || min_p_churn == max_p_churn
-              || power_add_mul == FITNESS_MUL) {
-          normalizing_constant = 0.5;
-          scale_exponent *= 2; // keep energy_facotr in the same range
-        }
-        energy_exponent = fitness * (1 - pow(fitness_exponent, q->times_selected)) 
-                                  + normalizing_constant * pow(fitness_exponent, q->times_selected);
-        energy_factor = pow(2, scale_exponent * (energy_exponent - normalizing_constant));
-      }
-      
-      
-      break;
-
-    case AVERAGE:
-      if ((max_p_age == min_p_age) && (max_p_churn == min_p_churn)) energy_factor = 1;
-      else {
-        // the larger churn gets higher weight
-        if (calibrated_paths && (min_p_churn != max_p_churn)){ // when using churn
-          avg_weight_churn = agg_weight_churn / calibrated_paths;
-
-          if (q->path_churn       - 50 > avg_weight_churn) energy_factor += 8;
-          else if (q->path_churn  - 30 > avg_weight_churn) energy_factor += 6;
-          else if (q->path_churn  - 10 > avg_weight_churn) energy_factor += 3;
-          else if (q->path_churn  - 5 > avg_weight_churn) energy_factor += 1.5;
-          else if (q->path_churn  + 50 < avg_weight_churn) energy_factor += 0.1;
-          else if (q->path_churn  + 30 < avg_weight_churn) energy_factor += 0.25;
-          else if (q->path_churn  + 10 < avg_weight_churn) energy_factor += 0.5;
-          else if (q->path_churn  + 5 < avg_weight_churn) energy_factor += 0.75;
-        }
-        // age: the smaller age gets higher weight
-        if (calibrated_paths && (max_p_age != min_p_age)){ // when using ages
-          avg_weight_age = agg_weight_age / calibrated_paths;
-
-          if (pow(2, q->path_age)       * 0.1 > pow(2, avg_weight_age)) energy_factor += 0.1;
-          else if (pow(2, q->path_age)  * 0.25 > pow(2, avg_weight_age)) energy_factor += 0.25;
-          else if (pow(2, q->path_age)  * 0.5 > pow(2, avg_weight_age)) energy_factor += 0.5;
-          else if (pow(2, q->path_age)  * 0.75 > pow(2, avg_weight_age)) energy_factor += 0.75;
-          else if (pow(2, q->path_age)  * 10 < pow(2, avg_weight_age)) energy_factor += 8;
-          else if (pow(2, q->path_age)  * 4 < pow(2, avg_weight_age)) energy_factor += 3;
-          else if (pow(2, q->path_age)  * 3 < pow(2, avg_weight_age)) energy_factor += 2;
-          else if (pow(2, q->path_age)  * 2 < pow(2, avg_weight_age)) energy_factor += 1.5;
-        }
+        // fitness = normalize_fitness(q->raw_fitness);
+        // fitness = q->weight;
+        energy_exponent = q->weight * (1 - pow(fitness_exponent, q->times_selected)) 
+                                  + 0.5 * pow(fitness_exponent, q->times_selected);
+        energy_factor = pow(2, scale_exponent * (2 * energy_exponent - 1));
       }
       
       break;
@@ -5684,8 +5605,8 @@ static u8 fuzz_one(char** argv) {
       ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes, %.3f alias score)...",
     current_entry, queued_paths, unique_crashes, queue_cur->alias_score);
     } else{
-      ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes found)...",
-         current_entry, queued_paths, unique_crashes);
+      ACTF("Fuzzing test case #%u (%u total, %llu uniq crashes, %.3f energy factor)...",
+         current_entry, queued_paths, unique_crashes, show_factor);
     }
     
     fflush(stdout);
@@ -5725,6 +5646,12 @@ static u8 fuzz_one(char** argv) {
 
     if (queue_cur->cal_failed < CAL_CHANCES) {
 
+      /* Reset exec_cksum to tell calibrate_case to re-execute the testcase
+         avoiding the usage of an invalid trace_bits.
+         For more info: https://github.com/AFLplusplus/AFLplusplus/pull/425 */
+
+      queue_cur->exec_cksum = 0;
+
       res = calibrate_case(argv, queue_cur, in_buf, queue_cycle - 1, 0);
 
       if (res == FAULT_ERROR)
@@ -5759,24 +5686,29 @@ static u8 fuzz_one(char** argv) {
 
     queue_cur->trim_done = 1;
 
-    if (len != queue_cur->len) len = queue_cur->len;
+    if (len != queue_cur->len){
+      len = queue_cur->len;
+      // update align_len
+      if (queue_cur->len % ACO_GROUP_SIZE)
+          queue_cur->align_len 
+              = queue_cur->len - queue_cur->len % ACO_GROUP_SIZE + ACO_GROUP_SIZE;
+      else
+        queue_cur->align_len = queue_cur->len;
+    }
       
   }
 
   if (use_byte_fitness){
     if (!queue_cur->byte_score){
-      queue_cur->byte_score = ck_alloc(queue_cur->len);
+      queue_cur->byte_score = ck_alloc(queue_cur->align_len);
       // initialize the byte score as INIT_BYTE_SCORE
-      memset(queue_cur->byte_score, INIT_BYTE_SCORE, queue_cur->len);
+      memset(queue_cur->byte_score, INIT_BYTE_SCORE, queue_cur->align_len);
     }
 
     if (!queue_cur->alias_table){
       queue_cur->alias_table = ck_alloc(queue_cur->len * sizeof(u32));
       queue_cur->alias_prob = ck_alloc(queue_cur->len * sizeof(double));
 
-      queue_cur->prob_norm_buf = ck_alloc(queue_cur->len * sizeof(double));
-      queue_cur->out_scratch_buf = ck_alloc(queue_cur->len * sizeof(int));
-      queue_cur->in_scratch_buf = ck_alloc(queue_cur->len * sizeof(int));
     }
   }
 
@@ -6679,9 +6611,7 @@ skip_interest:
       memcpy(out_buf + i, extras[j].data, last_len);
 
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-      if (use_byte_fitness)
-          cal_init_seed_byte_score(queue_cur, stage_cur_byte, stage_cur_byte + last_len - 1);
-
+      
       stage_cur++;
 
     }
@@ -6701,7 +6631,7 @@ skip_interest:
   stage_name  = "user extras (insert)";
   stage_short = "ext_UI";
   stage_cur   = 0;
-  stage_max   = extras_cnt * len;
+  stage_max   = extras_cnt * (len + 1);
 
   orig_hit_cnt = new_hit_cnt;
 
@@ -6728,9 +6658,7 @@ skip_interest:
         ck_free(ex_tmp);
         goto abandon_entry;
       }
-      if (use_byte_fitness)
-          cal_init_seed_byte_score(queue_cur, stage_cur_byte, stage_cur_byte + extras[j].len - 1);
-
+      
       stage_cur++;
 
     }
@@ -6783,9 +6711,7 @@ skip_user_extras:
       memcpy(out_buf + i, a_extras[j].data, last_len);
 
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
-      if (use_byte_fitness)
-          cal_init_seed_byte_score(queue_cur, stage_cur_byte, stage_cur_byte + last_len - 1);
-
+      
       stage_cur++;
 
     }
@@ -6814,8 +6740,8 @@ skip_extras:
 
 havoc_stage:
 
-  /* If the seed has not been fuzzed before. */
-  if (!queue_cur->was_fuzzed && use_byte_fitness) create_byte_alias_table(queue_cur);
+  /* Initial table creation. */
+  if (use_byte_fitness) create_byte_alias_table(queue_cur);
 
   stage_cur_byte = -1;
 
@@ -7253,9 +7179,9 @@ havoc_stage:
     
     if (use_byte_fitness){
       update_fitness_in_havoc(queue_cur, orig_in,
-            out_buf, temp_len);
-
-      expire_old_score(queue_cur); // expire old score for every 30 runs
+                out_buf, temp_len);
+        
+      expire_old_score(queue_cur); // expire old scores
     }
         
 
@@ -7281,8 +7207,6 @@ havoc_stage:
     }
 
   }
-
-  if (use_byte_fitness) create_byte_alias_table(queue_cur);
 
   new_hit_cnt = queued_paths + unique_crashes;
 
@@ -7859,14 +7783,16 @@ static void usage(u8* argv0) {
        "Power schedules:\n\n"
 
        "  -p            - anneal or average or none\n"
-       "  -c N          - set value of scale_exponent\n"
-       "  -b            - age or churn only\n\n"
+       "  -s            - set value of scale_exponent\n"
 
        "Other stuff:\n\n"
 
        "  -T text       - text banner to show on the screen\n"
        "  -M / -S id    - distributed mode (see parallel_fuzzing.txt)\n"
-       "  -C            - crash exploration mode (the peruvian rabbit thing)\n\n"
+       "  -C            - crash exploration mode (the peruvian rabbit thing)\n"
+       "  -V            - show version number and exit\n"
+       "  -b cpu_id     - bind the fuzzing process to the specified CPU core\n\n"
+
 
        "For additional tips, please consult %s/README.\n\n",
 
@@ -7996,16 +7922,6 @@ EXP_ST void setup_dirs_fds(void) {
                      "pending_total, pending_favs, map_size, unique_crashes, "
                      "unique_hangs, max_depth, execs_per_sec\n");
                      /* ignore errors */
-
-  // /* file for the churn values */
-  // tmp = alloc_printf("%s/churn_values", out_dir);
-  // fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0600);
-  // if (fd < 0) PFATAL("Unable to create '%s'", tmp);
-  // ck_free(tmp);
-  // churn_file = fdopen(fd, "w");
-  // if (!churn_file) PFATAL("fdopen churn file failed");
-  // // type: seed, crash
-  // fprintf(churn_file, "# type, num_churns, log2(days), norm_num_churns, norm_log2days\n");
 
 }
 
@@ -8564,7 +8480,7 @@ int main(int argc, char** argv) {
   gettimeofday(&tv, &tz);
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
-  while ((opt = getopt(argc, argv, "+i:o:f:m:t:T:dnCB:S:M:x:Qb:p:eZc:G:H:")) > 0)
+  while ((opt = getopt(argc, argv, "+i:o:f:m:b:t:T:dnCB:S:M:x:QVp:eZs:H:A")) > 0)
 
     switch (opt) {
 
@@ -8677,6 +8593,18 @@ int main(int argc, char** argv) {
         }
 
         break;
+      
+      case 'b': { /* bind CPU core */
+
+          if (cpu_to_bind_given) FATAL("Multiple -b options not supported");
+          cpu_to_bind_given = 1;
+
+          if (sscanf(optarg, "%u", &cpu_to_bind) < 1 ||
+              optarg[0] == '-') FATAL("Bad syntax used for -b");
+
+          break;
+
+      }
 
       case 'd': /* skip deterministic */
 
@@ -8737,21 +8665,7 @@ int main(int argc, char** argv) {
           schedule = POWER_NONE;
         } else if (!strcmp(optarg, "anneal")){ // default
           schedule = ANNEAL;
-        } else if (!strcmp(optarg, "average")){
-          schedule = AVERAGE;
         }
-        break;
-
-      case 'b': /* age, churn, or both */
-        if (!strcmp(optarg, "none")){
-          use_burst_churn = 0;
-          use_burst_age = 0;
-        } else if (!strcmp(optarg, "age")){
-          use_burst_churn = 0; // disable "churn"
-        } else if (!strcmp(optarg, "churn")){
-          use_burst_age = 0; // disable "age"
-        }
-
         break;
 
       case 'e':
@@ -8762,22 +8676,28 @@ int main(int argc, char** argv) {
         alias_seed_selection = 1;
         break;
 
-      case 'c':
+      case 's':
         if (sscanf(optarg, "%u", &scale_exponent) < 1) 
-              FATAL("Bad syntax used for -c");
+              FATAL("Bad syntax used for -s");
         break;
 
-      case 'G':
-        if (!strcmp(optarg, "add")){
-          power_add_mul = FITNESS_ADD;
-        } else if (!strcmp(optarg, "mul")){
-          power_add_mul = FITNESS_MUL;
-        }
-        break;
       case 'H':
         if (sscanf(optarg, "%f", &fitness_exponent) < 1) 
               FATAL("Bad syntax used for -H");
         break;
+      
+      case 'A':
+        aco_incdec = ACO_INC_DEC;
+        INIT_BYTE_SCORE = 128;
+        MIN_BYTE_SCORE = 118; 
+        MAX_BYTE_SCORE = 138;
+        ACO_GRAV_BIAS = (1 - ACO_COEF) * INIT_BYTE_SCORE;
+        break;
+
+      case 'V': /* Show version number */
+
+        /* Version number has been printed already, just quit. */
+        exit(0);
 
       default:
 
@@ -8820,16 +8740,18 @@ int main(int argc, char** argv) {
   switch (schedule) {
     case POWER_NONE: OKF ("Using No Schedule From Churn"); break;
     case ANNEAL: OKF ("Using Annealing-based Power Schedules (ANNEAL)"); break;
-    case AVERAGE: OKF("Using percentage based on average score (AVERAGE)"); break;
     default: FATAL ("Unknown power schedule");
   }
 
-  if (use_burst_churn) OKF ("Using 'churn' during fuzzing.");
-  if (use_burst_age) OKF ("Using 'age' during fuzzing.");
   if (use_byte_fitness) OKF ("Using Ant Colony Optimization.");
   if (alias_seed_selection) OKF("Select next seeds based on churn info.");
   OKF("scale_exponent is %u", scale_exponent);
   OKF("fitness_exponent is %f", fitness_exponent);
+  if (aco_incdec == ACO_INC_DEC){
+    OKF("ACO score - increase and decrease.");
+  } else{
+    OKF("ACO score - increase only");
+  }
 
   if (getenv("AFL_PRELOAD")) {
     setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
@@ -9017,10 +8939,9 @@ stop_fuzzing:
   }
 
   fclose(plot_file);
-  // fclose(churn_file);
 
   //plot byte score
-  // plot_byte_score();
+  plot_byte_score();
 
 
   destroy_queue();

@@ -17,16 +17,18 @@ LLVM 7.0.1
 ### install aflchurn
 We have two schemes of burst, one is the age of lines and the other is the number of changes of lines. 
 We can choose one of the schemes or both of them.
-- `export BURST_COMMAND_AGE=1`: enable rdays
-- `export BURST_AGE_SIGNAL=rrank`: enable rrank and disable rdays
+- `export AFLCHURN_DISABLE_AGE=1`: disable rdays
+- `export AFLCHURN_ENABLE_RANK=rrank`: enable rrank and disable rdays
 
-- `export BURST_COMMAND_CHURN=1` enables the number of changes of lines during build processd.
-- `export BURST_CHURN_SIGNAL=...` select the signal of churn. default: change
-    ```
-    BURST_CHURN_SIGNAL=xlogchange
-                        logchange
-    ```
+- `export AFLCHURN_DISABLE_CHURN=1`: disable the number of changes of lines during build processd.
 
+    `export AFLCHURN_CHURN_SIG=change`: change; 
+
+    `export AFLCHURN_CHURN_SIG=change2`: change^2;
+
+    `export AFLCHURN_CHURN_SIG=logchange`: log2(change);
+
+- `export AFLCHURN_INST_RATIO=N`: N%, select N% BBs to be inserted churn/age
 
 
 Install
@@ -40,8 +42,6 @@ Install
 ### About configure
 Export environmental variables.
     
-    export BURST_COMMAND_CHURN=1
-    export BURST_COMMAND_AGE=1
     CC=/path/to/aflchurn/afl-clang-fast ./configure [...options...]
     make
 
@@ -49,9 +49,9 @@ Be sure to also include CXX set to afl-clang-fast++ for C++ code.
 
 ### configure the time period to record churns
 
-    export BURST_SINCE_MONTHS=num_months
+    export AFLCHURN_SINCE_MONTHS=num_months
 
-e.g., `export BURST_SINCE_MONTHS=6` indicates recording changes in the recent 6 months
+e.g., `export AFLCHURN_SINCE_MONTHS=6` indicates recording changes in the recent 6 months
 
 ## run fuzzing
 
@@ -64,13 +64,6 @@ power schedule. Default: anneal.
     -p anneal
     -p average
 
-### option -b
-Choose "age" or "churn". Default: both
-
-    -b none
-    -b age
-    -b churn
-
 ### option -e
 Byte score for mutation. 
 If `-e` is set, it will not use the ant colony optimisation for mutation.
@@ -79,21 +72,21 @@ If `-e` is set, it will not use the ant colony optimisation for mutation.
 If `-Z` is set, use alias method to select the next seed based on churns information.
 If `Z` is not set, use the vanilla AFL scheme to select the next seed.
 
-### option -c N
-if `-c` is set, N is scale_exponent in `energy_factor = pow(2, scale_exponent * (energy_exponent - normalizing_constant));`
+### option -s N
+`-s` sets value of `scale_exponent` in `energy_factor = pow(2, scale_exponent * (2 * energy_exponent - 1));`.
+
+`N` should be an integer.
 
 
-        
-### option -G
+### option -H float
+set `fitness_exponent` in
 
-ADD or MULTIPLY in score_pow = (rela_p_age * rela_p_churn) *(...)
-calculation of power schedule:
-
-    -G add
-        mul
-
-### option -H
-
+```
+fitness * (1 - pow(fitness_exponent, q->times_selected)) 
+        + 0.5 * pow(fitness_exponent, q->times_selected);
+```
+### ACO increase/decrease score
+if `A` is set, set it to "increase and decrease" mode.
 
 ### DEFAULT
-pe3, N/days, mul, 100logchange
+pe3, N/days, mul, 100logchange, Texp0.3

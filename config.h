@@ -28,7 +28,7 @@
 
 /* Version string: */
 
-#define VERSION             "2.56b"
+#define VERSION             "2.57b"
 
 /******************************************************
  *                                                    *
@@ -329,20 +329,49 @@
 #define MAP_SIZE            (1 << MAP_SIZE_POW2)
 
 /* ACO: update frequency and coefficient */
+
 #define ACO_FREQENCY       30
 #define ACO_COEF           0.9
-#define INIT_BYTE_SCORE    128
+// #define INIT_BYTE_SCORE    128
+// //values in [MIN_BYTE_SCORE, MAX_BYTE_SCORE] will not change by calculation
+// #define MIN_BYTE_SCORE     118
+// #define MAX_BYTE_SCORE     138
+
+// #define INIT_BYTE_SCORE    0
+// //values in [MIN_BYTE_SCORE, MAX_BYTE_SCORE] will not change by calculation
+// #define MIN_BYTE_SCORE     0
+// #define MAX_BYTE_SCORE     0
+/* ACO group size */
+#define ACO_GROUP_SIZE   4
+
+enum{
+   CHURN_LOG_CHANGE,
+   CHURN_CHANGE,
+   CHURN_CHANGE2
+};
+
+enum{
+   ACO_INC_ONLY,
+   ACO_INC_DEC
+};
 
 
-/* Path weight. 8 bytes for ages, 8 bytes for block hit-counts of ages.
-   8 bytes for changes, 8 bytes for block hit-counts of changes. 
-   4 bytes for 32-bit system.
+/* Shared memory for Path weight. 
+8 bytes for weight (double); 8 for count (integer).
  */
-#define WEIGHT_SHM         32
+#define WEIGHT_SHM         16
 
-/* Keep decimal of path weight */
-#define FACTOR100         100
-#define FACTOR1000        1000
+/* Threshold of ages and changes */
+// Always instrument a BB if its age is less than days
+#define THRESHOLD_DAYS     30
+#define THRESHOLD_RANKS    30
+// Always instrument a BB if its #changes is larger than a percentage (%)
+#define THRESHOLD_PERCENT_CHANGES   10
+
+/* Ratio (%) to select a BB to insert age/churn */
+#define CHURN_INSERT_RATIO    30
+
+#define WRONG_VALUE     0
 
 /* Maximum allocator request size (keep well under INT_MAX): */
 
