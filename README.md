@@ -1,92 +1,72 @@
-# source
-Based on [american fuzzy lop](https://github.com/google/AFL), which is originally developed by Michal Zalewski <lcamtuf@google.com>.
+# What you change is what you fuzz!
+![](figures/example2.png)
 
-# this project
+This work is accepted by CCS 2021, entitled "Regression Greybox Fuzzing".
 
-fuzzing with change-burst info.
+aflchurn is a regression greybox fuzzer that steers computing resources to code regions that are changed more recently or more frequently. aflchurn does not focus on one commit, instead, it leverages the versioning system to obtain the information of commit history, and to optimize power schedule of fuzzing. For aflchurn, each BB is a target, but with weights. BBs that are changed more recently or frequently get higher weights.
 
-## version
-Linux 18.04, 64-bit system. 
+# Requirement
+- We test the code on Linux 18.04, 64-bit system. 
+- LLVM 
+- git version 2.17.1
 
-LLVM 7.0.1
+
+# This project
+
+aflchurn is developed based on [american fuzzy lop](https://github.com/google/AFL). AFL is originally developed by Michal Zalewski <lcamtuf@google.com>. aflchurn utilizes [git](https://git-scm.com/) to obtain knowledge of changes for BBs.
 
 
 ## Install
 
-   
-### install aflchurn
-We have two schemes of burst, one is the age of lines and the other is the number of changes of lines. 
-We can choose one of the schemes or both of them.
-- `export AFLCHURN_DISABLE_AGE=1`: disable rdays
-- `export AFLCHURN_ENABLE_RANK=rrank`: enable rrank and disable rdays
+Install aflchurn
 
-- `export AFLCHURN_DISABLE_CHURN=1`: disable the number of changes of lines during build processd.
-
-    `export AFLCHURN_CHURN_SIG=change`: change; 
-
-    `export AFLCHURN_CHURN_SIG=change2`: change^2;
-
-    `export AFLCHURN_CHURN_SIG=logchange`: log2(change);
-
-- `export AFLCHURN_INST_RATIO=N`: N%, select N% BBs to be inserted churn/age
-
-
-Install
-
-    cd /path/to/root/aflchurn
+    git clone https://github.com/aflchurn/aflchurn.git
+    cd /path/to/aflchurn
     make clean all
     cd llvm_mode
     make clean all
 
-
-### About configure
-Export environmental variables.
+## Instrument
+Export environmental variables if required.
     
     CC=/path/to/aflchurn/afl-clang-fast ./configure [...options...]
     make
 
 Be sure to also include CXX set to afl-clang-fast++ for C++ code.
 
-### configure the time period to record churns
+## Run fuzzing
 
-    export AFLCHURN_SINCE_MONTHS=num_months
+    afl-fuzz -i <input_dir> -o <out_dir> -- <file_path> [...parameters...]
 
-e.g., `export AFLCHURN_SINCE_MONTHS=6` indicates recording changes in the recent 6 months
+# Options and Envs
+## Options
 
-## run fuzzing
+| Options | args | description | note |
+| :---: | :--- | :-------------------------- | :------ |
+| `-p` | `anneal` | annealing-based power schedule | default |
+| `-p` | `none` | vanilla AFL power schedule | / |
+| `-e` | no args | disable ant colony optimisation for byte selection | / |
+| `-s` | integer | scale_exponent for power schedule | / |
+| `-H` | float | fitness_exponent for power schedule | / |
+| `-A` | no args | "increase/decrease" mode for ACO | / |
+| `-Z` | no args | alias method for seed selection | experimental |
 
-    afl-fuzz -i <input_dir> -o <out_dir> -p anneal -e -Z -- <file_path> [...parameters...]
+e.g.,
+If `-e` is set, it will not use the ant colony optimization for mutation.
 
-### option -p
-power schedule. Default: anneal.
+## Envs
 
-    -p none
-    -p anneal
-    -p average
+| Envs | values | description | note |
+| :-------------------- | :--- | :--- | :---- |
+| `AFLCHURN_DISABLE_AGE` |   `1`   | disable rdays | / |
+| `AFLCHURN_ENABLE_RANK` | `rrank` | enable rrank and disable rdays | / |
+| `AFLCHURN_DISABLE_CHURN` | `1` | disable #changes | / |
+| `AFLCHURN_INST_RATIO` | integer | select N% BBs to be inserted churn/age | / |
+| `AFLCHURN_SINCE_MONTHS` | integer | recording age/churn in recent N months | / |
+| `AFLCHURN_CHURN_SIG` | `change` | amplify function x | experimental |
+| `AFLCHURN_CHURN_SIG` |`change2`| amplify function x^2 | experimental |
 
-### option -e
-Byte score for mutation. 
-If `-e` is set, it will not use the ant colony optimisation for mutation.
-
-### option -Z
-If `-Z` is set, use alias method to select the next seed based on churns information.
-If `Z` is not set, use the vanilla AFL scheme to select the next seed.
-
-### option -s N
-`-s` sets value of `scale_exponent` in `energy_factor = pow(2, scale_exponent * (2 * energy_exponent - 1));`.
-
-`N` should be an integer.
+e.g., `export AFLCHURN_SINCE_MONTHS=6` indicates recording changes in the recent 6 months.
 
 
-### option -H float
-set `fitness_exponent` in
 
-```
-fitness * (1 - pow(fitness_exponent, q->times_selected)) 
-        + 0.5 * pow(fitness_exponent, q->times_selected);
-```
-### ACO increase/decrease score
-if `A` is set, set it to "increase and decrease" mode.
-
-### DEFAULT
-pe3, N/days, mul, 100logchange, Texp0.3
