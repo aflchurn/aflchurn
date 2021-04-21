@@ -27,6 +27,9 @@ Install aflchurn
     make clean all
 
 ## Instrument
+PLEASE REMAIN THE VERSIONING INFORMATION (DO NOT use `--depth 1` when `git clone` target projects) !!!
+Currently, aflchurn only supports projects from github, which has a well-organized versioning system.
+
 Export environmental variables if required.
     
     CC=/path/to/aflchurn/afl-clang-fast ./configure [...options...]
