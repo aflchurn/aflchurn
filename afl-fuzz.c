@@ -109,8 +109,7 @@ double show_factor = 0.0;
 u8 use_byte_fitness = 1;  /* use byte score to select bytes; default: use */
 u8 aco_incdec = ACO_INC_ONLY;     /* only increase score or increase/decrease */
 u8 INIT_BYTE_SCORE = 0, MIN_BYTE_SCORE = 0, MAX_BYTE_SCORE = 0;
-u8 ACO_GRAV_BIAS = 0;  
-// ACO_GRAV_BIAS = (1 - ACO_COEF) * INIT_BYTE_SCORE;
+u8 ACO_GRAV_BIAS = 0;
 
 u32 scale_exponent = 3; // default
 float fitness_exponent = 0.3;
@@ -598,14 +597,11 @@ void update_fitness_in_havoc(struct queue_entry* q, u8* seed_mem,
 
 /* 
 Select one byte to be mutated based no churn values by using ACO.
+Prerequisite: q->len == cur_input_len
  */
 static inline u32 select_one_byte(struct queue_entry *q, u32 cur_input_len){
   // randomly select an aliased seed
   u32 s = UR(cur_input_len);
-  // // cur_input_len is too long (than seed length)
-  // if (s >= q->len) return s;
-  // // cur_input_len is too short (than the alias position)
-  // if (q->alias_table[s] >= cur_input_len) return s;
   // generate the next percent
   double p = (double)UR(0xFFFFFFFF)/0xFFFFFFFE;
   return (p < q->alias_prob[s] ? s : q->alias_table[s]);
@@ -4755,7 +4751,7 @@ static void show_stats(void) {
 
   sprintf(tmp, "%.3f", show_factor);
 
-  SAYF (bSTG bV bSTOP "  burst factor : " cRST "%-22s " bSTG bV "\n", tmp);
+  SAYF (bSTG bV bSTOP "aflchurn factor: " cRST "%-22s " bSTG bV "\n", tmp);
 
   /* Aaaalmost there... hold on! */
 
@@ -5328,8 +5324,6 @@ static u32 calculate_score(struct queue_entry* q) {
 
       if (max_raw_fitness == min_raw_fitness) energy_factor = 1;
       else {
-        // fitness = normalize_fitness(q->raw_fitness);
-        // fitness = q->weight;
         energy_exponent = q->weight * (1 - pow(fitness_exponent, q->times_selected)) 
                                   + 0.5 * pow(fitness_exponent, q->times_selected);
         energy_factor = pow(2, scale_exponent * (2 * energy_exponent - 1));
@@ -7779,11 +7773,6 @@ static void usage(u8* argv0) {
        "  -d            - quick & dirty mode (skips deterministic steps)\n"
        "  -n            - fuzz without instrumentation (dumb mode)\n"
        "  -x dir        - optional fuzzer dictionary (see README)\n\n"
-      
-       "Power schedules:\n\n"
-
-       "  -p            - anneal or average or none\n"
-       "  -s            - set value of scale_exponent\n"
 
        "Other stuff:\n\n"
 
@@ -7792,6 +7781,16 @@ static void usage(u8* argv0) {
        "  -C            - crash exploration mode (the peruvian rabbit thing)\n"
        "  -V            - show version number and exit\n"
        "  -b cpu_id     - bind the fuzzing process to the specified CPU core\n\n"
+
+       "AFLChurn parameters:\n\n"
+
+       "Power schedules:\n"
+       "  -p            - anneal or none\n"
+       "  -s integer    - set value of scale_exponent\n"
+       "  -e            - disable ACO byte schedule\n"
+       "  -Z            - enable seed schedule\n"
+       "  -H float      - set fitness_exponent\n"
+       "  -A            - increase/decrease mode for ACO\n\n"
 
 
        "For additional tips, please consult %s/README.\n\n",
@@ -8940,8 +8939,8 @@ stop_fuzzing:
 
   fclose(plot_file);
 
-  //plot byte score
-  plot_byte_score();
+  // plot byte score
+  // plot_byte_score();
 
 
   destroy_queue();

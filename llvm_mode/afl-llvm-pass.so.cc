@@ -77,19 +77,6 @@ namespace {
     public:
 
       static char ID;
-      
-      // Type *VoidTy;
-      // IntegerType *Int1Ty;
-      // IntegerType *Int8Ty;
-      // IntegerType *Int32Ty;
-      // IntegerType *Int64Ty;
-      // Type *Int8PtrTy;
-      // Type *Int64PtrTy;
-      // GlobalVariable *AFLMapPtr;
-      // GlobalVariable *AFLPrevLoc;
-
-      // unsigned NoSanMetaId;
-      // MDTuple *NoneMetaNode;
 
       AFLCoverage() : ModulePass(ID) { }
 
@@ -135,15 +122,6 @@ double inst_norm_age(int max_days, int days_since_last_change){
 
 double inst_norm_rank(unsigned int max_rank, int line_rank){
   double norm_ranks;
-  // rlogrank
-  // if (line_rank < 0) norm_ranks = 1;
-  // else norm_ranks = 1 / log2(line_rank + 2);
-
-  // log2rank
-  // if (max_rank >= 1){
-  //   if (line_rank < 0) norm_ranks = 1;
-  //   else norm_ranks = (log2(max_rank + 1) - log2(line_rank + 1)) / log2(max_rank + 1);
-  // }
 
   /* rrank */
   if (line_rank <= 0) {
@@ -177,16 +155,6 @@ double inst_norm_change(unsigned int num_changes, unsigned short change_select){
     default:
       FATAL("Wrong CHURN_CHANGE type!");
   }
-  // // logchanges
-  // if (num_changes < 0) norm_chg = 0;
-  // else norm_chg = log2(num_changes + 1);
-
-  // // change^2
-  // norm_chg = num_changes * num_changes;
-    
-  // // xlogchange
-  //   if (num_changes < 0) norm_chg = 0;
-  //   else norm_chg = (num_changes + 1) * log2(num_changes + 1);
 
   return norm_chg;
 
@@ -209,7 +177,7 @@ std::string execute_git_cmd (std::string directory, std::string str_cmd){
 	// when cmd fail, output "fatal: ...";
   // when succeed, output result
   if (fscanf(fp, "%s", ch_git_res) == 1) {
-    str_res.assign(ch_git_res);  //, strlen(ch_git_res)
+    str_res.assign(ch_git_res);
   }
 
   if (startsWith(str_res, "fatal")){
@@ -915,12 +883,6 @@ bool AFLCoverage::runOnModule(Module &M) {
                   norm_change_thd = inst_norm_change(changes_inst_threshold, change_sig);
                   norm_age_thd = inst_norm_age(head_commit_days - init_commit_days, THRESHOLD_DAYS);
                   norm_rank_thd = inst_norm_rank(head_num_parents, THRESHOLD_RANKS);
-
-                  // std::cout << "changes threshold: "<< changes_inst_threshold
-                  //         << "; head days: " << head_commit_days
-                  //         << "; init days: " << init_commit_days
-                  //         << "; head's parents: "<< head_num_parents
-                  //         << std::endl;
                   break;
                 }
                 
@@ -975,9 +937,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 
           /* take care of git blame path: relative to repo dir */
           if (!filename.empty() && !filedir.empty()){
-            // std::cout << "file name: " << filename << std::endl << "file dir: " << filedir <<std::endl;
+            
             clean_relative_path = get_file_path_relative_to_git_dir(filename, filedir, git_path);
-            // std::cout << "relative path: " << clean_relative_path << std::endl;
+            
             if (!clean_relative_path.empty()){
               /* calculate score of a block */
                 /* Check if file exists in HEAD using command mode */

@@ -13,7 +13,7 @@ aflchurn is a regression greybox fuzzer that steers computing resources to code 
 
 # This project
 
-aflchurn is developed based on [american fuzzy lop](https://github.com/google/AFL). AFL is originally developed by Michal Zalewski <lcamtuf@google.com>. aflchurn utilizes [git](https://git-scm.com/) to obtain knowledge of changes for BBs.
+aflchurn is developed based on [American Fuzzy Lop (AFL)](https://github.com/google/AFL). AFL is originally developed by Michal Zalewski <lcamtuf@google.com>. aflchurn utilizes [git](https://git-scm.com/) to obtain knowledge of changes for BBs.
 
 
 ## Install
