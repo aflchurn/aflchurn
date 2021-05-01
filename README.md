@@ -41,6 +41,11 @@ Be sure to also include CXX set to afl-clang-fast++ for C++ code.
 
     afl-fuzz -i <input_dir> -o <out_dir> -- <file_path> [...parameters...]
 
+Running example:
+
+The "aflchurn factor" is the factor decided by aflchurn power schedule.
+![](figures/aflchurn_banner.png)
+
 # Options and Envs
 ## Options
 
