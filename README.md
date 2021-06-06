@@ -1,5 +1,5 @@
 # AFLChurn: What you change is what you fuzz!
-This work is accepted by CCS 2021, entitled "Regression Greybox Fuzzing" by Xiaogang Zhu and [Marcel Böhme](https://mboehme.github.io).
+This work is accepted by CCS 2021: "Regression Greybox Fuzzing" by [Xiaogang Zhu](https://scholar.google.com.au/citations?user=rav4c-0AAAAJ&hl=en) and [Marcel Böhme](https://mboehme.github.io).
 
 <a href="https://mboehme.github.io/paper/CCS21.pdf"><img src="https://github.com/aflchurn/aflchurn/raw/main/aflchurn.png" align="right" width="280"></a>
 
