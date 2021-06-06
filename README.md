@@ -1,53 +1,60 @@
-# What you change is what you fuzz!
-![](figures/example2.png)
+# AFLChurn: What you change is what you fuzz!
+This work is accepted by CCS 2021, entitled "Regression Greybox Fuzzing" by Xiaogang Zhu and [Marcel Böhme](https://mboehme.github.io).
 
-This work is accepted by CCS 2021, entitled "Regression Greybox Fuzzing".
+<a href="https://mboehme.github.io/paper/CCS21.pdf"><img src="https://github.com/aflchurn/aflchurn/raw/main/aflchurn.png" align="right" width="280"></a>
 
-aflchurn is a regression greybox fuzzer that steers computing resources to code regions that are changed more recently or more frequently. aflchurn does not focus on one commit, instead, it leverages the versioning system to obtain the information of commit history, and to optimize power schedule of fuzzing. For aflchurn, each BB is a target, but with weights. BBs that are changed more recently or frequently get higher weights.
+AFLChurn is a regression greybox fuzzer that focusses on code that is changed more recently or more frequently. In our empirical study on bugs in OSSFuzz, we found that every four in five bugs reported in [OSSFuzz](https://github.com/google/oss-fuzz) are introduced by recent changes, so called regressions. Unlike a directed fuzzer, AFLChurn is not directed towards a single recent commit. Instead, it uses the entire commit history of a project to steer the fuzzing efforts towards code regions where such regressions may lurk. For AFLChurn, ever basic block (BB) is a target. However, some BBs have more and others less weight. Specifically, executed BBs that are changed more recently or more frequently will contribute a greater weight towards the power schedule of AFLChurn.
 
-# Requirement
-- We test the code on Linux 18.04, 64-bit system. 
-- LLVM 
-- git version 2.17.1
+```bibtex
+@inproceedings{aflchurn,
+ author = {Zhu, Xiaogang and B{\"o}hme, Marcel}, 
+ title = {Regression Greybox Fuzzing},
+ booktitle = {Proceedings of the 28th ACM Conference on Computer and Communications Security},
+ series = {CCS},
+ year = {2021},
+ numpages = {12},
+}
+```
 
+## Project
+AFLChurn is developed based on [American Fuzzy Lop (AFL)](https://github.com/google/AFL) which was originally developed by Michal Zalewski <lcamtuf@google.com>. AFLChurn utilizes [git](https://git-scm.com/) to determine how frequently or how recently a BB was changed and an LLVM instrumentation pass to make the compiled program binary efficiently compute the commit-history-based fitness of an executed input.
 
-# This project
+We tested the code on Linux 18.04, 64-bit system and used git version 2.17.1.
 
-aflchurn is developed based on [American Fuzzy Lop (AFL)](https://github.com/google/AFL). AFL is originally developed by Michal Zalewski <lcamtuf@google.com>. aflchurn utilizes [git](https://git-scm.com/) to obtain knowledge of changes for BBs.
+## Build AFLChurn
+To build AFLChurn, execute
+```bash
+git clone https://github.com/aflchurn/aflchurn.git
+cd aflchurn
+export AFLCHURN=$PWD
+make clean all
+cd llvm_mode
+make clean all
+```
 
+## Instrument your Program
 
-## Install
+When cloning your program, **please retain the entire commit history** (i.e., do **not** use `git clone --depth 1 ..`). Currently, we only support `git`.
 
-Install aflchurn
-
-    git clone https://github.com/aflchurn/aflchurn.git
-    cd /path/to/aflchurn
-    make clean all
-    cd llvm_mode
-    make clean all
-
-## Instrument
-PLEASE REMAIN THE VERSIONING INFORMATION (DO NOT use `--depth 1` when `git clone` target projects) !!!
-Currently, aflchurn only supports projects from github, which has a well-organized versioning system.
-
-Export environmental variables if required.
-    
-    CC=/path/to/aflchurn/afl-clang-fast ./configure [...options...]
-    make
-
+Build your project with $AFLCHURN/afl-clang-fast. For instance,
+```bash
+CC=$AFLCHURN/afl-clang-fast ./configure [...options...]
+make
+```
 Be sure to also include CXX set to afl-clang-fast++ for C++ code.
 
-## Run fuzzing
+## Run AFLChurn on your Program
 
-    afl-fuzz -i <input_dir> -o <out_dir> -- <file_path> [...parameters...]
+```bash
+afl-fuzz -i <input_dir> -o <out_dir> -- <file_path> [...parameters...]
+```
 
-Running example:
-
-The "aflchurn factor" is the factor decided by aflchurn power schedule.
+You should see something like this:
 ![](figures/aflchurn_banner.png)
+The "aflchurn factor" is the factor decided by aflchurn power schedule.
 
-# Options and Envs
-## Options
+# Configuring AFLChurn
+## Fuzzer Options
 
 | Options | args | description | note |
 | :---: | :--- | :-------------------------- | :------ |
@@ -62,7 +69,7 @@ The "aflchurn factor" is the factor decided by aflchurn power schedule.
 e.g.,
 If `-e` is set, it will not use the ant colony optimization for mutation.
 
-## Envs
+## Environment Variables for our LLVM Instrumentation Pass
 
 | Envs | values | description | note |
 | :-------------------- | :--- | :--- | :---- |
@@ -75,6 +82,4 @@ If `-e` is set, it will not use the ant colony optimization for mutation.
 | `AFLCHURN_CHURN_SIG` |`change2`| amplify function x^2 | experimental |
 
 e.g., `export AFLCHURN_SINCE_MONTHS=6` indicates recording changes in the recent 6 months.
-
-
 
