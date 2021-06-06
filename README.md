@@ -1,7 +1,7 @@
 # AFLChurn: What you change is what you fuzz!
 This work is accepted by CCS 2021: "Regression Greybox Fuzzing" by [Xiaogang Zhu](https://scholar.google.com.au/citations?user=rav4c-0AAAAJ&hl=en) and [Marcel Böhme](https://mboehme.github.io).
 
-<a href="https://mboehme.github.io/paper/CCS21.pdf"><img src="https://github.com/aflchurn/aflchurn/raw/main/aflchurn.png" align="right" width="280"></a>
+<a href="https://mboehme.github.io/paper/CCS21.pdf"><img src="https://github.com/aflchurn/aflchurn/raw/main/aflchurn.png" align="right" width="380"></a>
 
 AFLChurn is a regression greybox fuzzer that focusses on code that is changed more recently or more frequently. In our empirical study on bugs in OSSFuzz, we found that every four in five bugs reported in [OSSFuzz](https://github.com/google/oss-fuzz) are introduced by recent changes, so called regressions. Unlike a directed fuzzer, AFLChurn is not directed towards a single recent commit. Instead, it uses the entire commit history of a project to steer the fuzzing efforts towards code regions where such regressions may lurk. For AFLChurn, ever basic block (BB) is a target. However, some BBs have more and others less weight. Specifically, executed BBs that are changed more recently or more frequently will contribute a greater weight towards the power schedule of AFLChurn.
 
