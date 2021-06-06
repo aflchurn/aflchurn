@@ -50,7 +50,7 @@ afl-fuzz -i <input_dir> -o <out_dir> -- <file_path> [...parameters...]
 
 You should see something like this:
 ![](figures/aflchurn_banner.png)
-The "aflchurn factor" is the factor decided by aflchurn power schedule.
+The "aflchurn factor" is the fitness of the current seed as decided by the AFLChurn power schedule.
 
 # Configuring AFLChurn
 ## Fuzzer Options
