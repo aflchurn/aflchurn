@@ -52,8 +52,8 @@ You should see something like this:
 ![](figures/aflchurn_banner.png)
 The "aflchurn factor" is the fitness of the current seed as decided by the AFLChurn power schedule.
 
-# Configuring AFLChurn
-## Fuzzer Options
+## Configuring AFLChurn
+### Fuzzer Options
 
 | Options | args | description | note |
 | :---: | :--- | :-------------------------- | :------ |
@@ -68,7 +68,7 @@ The "aflchurn factor" is the fitness of the current seed as decided by the AFLCh
 e.g.,
 If `-e` is set, it will not use the ant colony optimization for mutation.
 
-## Environment Variables for our LLVM Instrumentation Pass
+### Environment Variables for our LLVM Instrumentation Pass
 
 | Envs | values | description | note |
 | :-------------------- | :--- | :--- | :---- |
