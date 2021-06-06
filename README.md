@@ -36,12 +36,11 @@ make clean all
 
 When cloning your program, **please retain the entire commit history** (i.e., do **not** use `git clone --depth 1 ..`). Currently, we only support `git`.
 
-Build your project with $AFLCHURN/afl-clang-fast. For instance,
+Build your project with $AFLCHURN/afl-clang-fast for C code and $AFLCHURN/afl-clang-fast++ for C++ code. For instance,
 ```bash
-CC=$AFLCHURN/afl-clang-fast ./configure [...options...]
+CC=$AFLCHURN/afl-clang-fast CXX=$AFLCHURN/afl-clang-fast++ ./configure [...options...]
 make
 ```
-Be sure to also include CXX set to afl-clang-fast++ for C++ code.
 
 ## Run AFLChurn on your Program
 
