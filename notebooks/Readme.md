@@ -6,7 +6,7 @@ You can reproduce our evaluation without any setup directly on Kaggle:
 
 You can also run the Jupyter Notebooks yourself.
 * Clone this repository: `git clone https://github.com/aflchurn/aflchurn`
-* Install [R](https://cran.r-project.org/bin/windows/base/) and [Anaconda Navigator](https://docs.anaconda.com/anaconda/navigator/) community version.
+* Install [R](https://cran.r-project.org/bin/windows/base/) and [Anaconda Navigator](https://docs.anaconda.com/anaconda/install/) community version.
 * Open Anaconda Navigator and create a new R environment through ‘Environments’ tab.
 * Return back to ‘Home’ and select the created R environment from the drop-down menu under ‘Applications on’.
 * Launch Jupyter and navigate to the the cloned repository. 
