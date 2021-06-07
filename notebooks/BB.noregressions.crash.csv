@@ -1,0 +1,17 @@
+subject,        depth,  age,    churn,  location
+muparser_set_eval_fuzzer,       0,      78,     11,     src/muParserBase.cpp:1242
+muparser_set_eval_fuzzer,       1,      78,     11,     src/muParserBase.cpp:1520
+muparser_set_eval_fuzzer,       2,      78,     11,     src/muParserBase.cpp:1509
+ndpi_fuzz_process_packet,       0,      1797,   1,      src/lib/protocols/irc.c:680
+ndpi_fuzz_process_packet,       1,      172,    2,      src/lib/ndpi_main.c:4141
+ndpi_fuzz_process_packet,       2,      172,    2,      src/lib/ndpi_main.c:4187
+ndpi_fuzz_process_packet,       3,      129,    2,      fuzz/fuzz_process_packet.c:24
+harfbuzz_hb-shape-fuzzer,       0,      381,    1,      src/./hb.hh:541
+harfbuzz_hb-shape-fuzzer,       1,      148,    1,      src/./hb-ot-cff1-table.hh:1315
+harfbuzz_hb-shape-fuzzer,       2,      142,    5,      src/hb-ot-font.cc:228
+harfbuzz_hb-shape-fuzzer,       3,      529,    1,      ./test/fuzzing/../api/test-ot-face.c:61
+ndpi_fuzz_ndpi_reader,  0,      211,    2,      example/reader_util.c:1627
+unicorn_fuzz_emu_arm_armbe,     0,      1641,   1,      qemu/target-arm/op_helper.c:254
+htslib_hts_open_fuzzer,         0,      1421,   1,      vcf.c:2462
+htslib_hts_open_fuzzer,         1,      2342,   14,     vcf.c:2841
+htslib_hts_open_fuzzer,         2,      475,    1,      test/fuzz/hts_open_fuzzer.c:107
