@@ -363,8 +363,9 @@ enum{
 
 /* Threshold of ages and changes */
 // Always instrument a BB if its age is less than days
-#define THRESHOLD_DAYS     30
-#define THRESHOLD_RANKS    30
+#define THRESHOLD_DAYS     200
+#define THRESHOLD_RANKS    200
+#define THRESHOLD_CHANGES    10
 // Always instrument a BB if its #changes is larger than a percentage (%)
 #define THRESHOLD_PERCENT_CHANGES   10
 

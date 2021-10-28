@@ -871,7 +871,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                     break;
                   }
                   // #change threshold
-                  changes_inst_threshold = get_threshold_changes(git_path);
+                  // changes_inst_threshold = get_threshold_changes(git_path);
                   //get commit time
                   std::string head_cmd("git show -s --format=%ct HEAD");
                   head_commit_days = get_commit_time_days(git_path, head_cmd);
@@ -880,7 +880,7 @@ bool AFLCoverage::runOnModule(Module &M) {
                   /* Get the number of commits before HEAD */
                   head_num_parents = get_max_ranks(git_path);
                   /* thresholds */
-                  norm_change_thd = inst_norm_change(changes_inst_threshold, change_sig);
+                  norm_change_thd = inst_norm_change(THRESHOLD_CHANGES, change_sig);
                   norm_age_thd = inst_norm_age(head_commit_days - init_commit_days, THRESHOLD_DAYS);
                   norm_rank_thd = inst_norm_rank(head_num_parents, THRESHOLD_RANKS);
                   break;
