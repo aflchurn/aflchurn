@@ -102,4 +102,5 @@ You can also run the Jupyter Notebooks yourself.
 * Launch Jupyter and navigate to the the cloned repository. 
 * Edit and run our workbooks in the folder in the folder `aflchurn/notebooks`.
 
-
+# Another version
+A more precise way to calculate age/#change can be found in https://github.com/RosenZhu/AFLChurn, which will be integrated into this repository in the future.
